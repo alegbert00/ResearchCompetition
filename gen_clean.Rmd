@@ -1,0 +1,94 @@
+---
+title: "Generation Research Cleaning"
+author: "Manda Egbert, John Dames, Kristina Burgess, and Elijah Weis"
+date: "2023-04-12"
+output:
+  word_document: default
+  pdf_document: default
+---
+
+### Loading tidyverse and importing data
+
+The following chunk loads the tidyverse package so we may use the
+commands that come with it. It also imports the data set from the drive. The raw data is imported to a data set called Raw.Data to preserve the raw data if it becomes necessary later.
+
+```{r load}
+library(tidyverse)
+install.packages("readxl")
+library(readxl)
+
+gen.cleaning <- read_excel("Raw.partial.clean.xlsx")
+```
+
+### Duplicates
+
+We confirmed there were no duplicate UUID, so we know that each person only took it once and each observation is unique. 
+
+
+### Renaming
+The default categories for generation were numbered, so in order to make it easier to read graphs, we will convert those numbers into generation names. The same will be done for genders and income.
+
+```{r Combine gender variables}
+gen.cleaning$gender.all <- ifelse(gen.cleaning$gender == 1, 1, 
+ifelse(gen.cleaning$gender == 2, 2, 3))
+                      
+summary(gen.cleaning$gender.all)
+```
+
+
+
+### Clean up redundant variables
+```{r}
+variables.to.remove <- c("gender", "gender.other")
+gen.cleaning <- gen.cleaning %>%
+  select(!one_of(variables.to.remove))
+```
+
+```{r}
+gen.cleaning <- gen.cleaning %>%
+  rename(gender = gender.all)
+```
+
+
+### Check for those who sped through suvery
+
+This flags anyone who completed the survey in less than 25% of the median time.  This respondents didn't take adequate time to read and understand the questions asked. Additionally, it appears one of these respondents were a bot, as their opened ended answers are gibberish. These will all be removed. 
+
+```{r Speeders}
+qtime_median <- median(gen.cleaning$qtime)
+
+threshold <- 0.25 * qtime_median
+
+fast_participants <- gen.cleaning[gen.cleaning$qtime <= threshold, ]
+
+print(fast_participants)
+```
+### Changing data types
+
+The data types were adjusted when the data set was loaded to R-Studio.  Most of the data set consists of doubles and characters. 
+
+```{r}
+# Select only the numeric values of groc.budget
+groc.budget_numeric <- as.numeric(gen.cleaning$groc.budget)
+```
+
+### Filtering bots, speeders, and outliers
+
+This removes all of the additional observations we found needed filtered out throughout this cleaning process
+```{r}
+# Create a vector of record numbers to remove
+records_to_remove <- c(618, 616, 606, 64, 3, 103, 1, 450, 556, 640, 392)
+
+# Subset the data to exclude the specified record numbers
+gen.cleaning <- gen.cleaning[!(gen.cleaning$record %in% records_to_remove), ]
+```
+
+### Write file
+
+This chunk of code takes our cleaned data set and converts it into a new
+.csv file that can be imported into other programs to analyze by using
+the write.csv function and giving the file a name.
+
+```{r}
+#write.csv(gen.cleaning, file = "clean.numeric.csv")
+```

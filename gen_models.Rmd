@@ -1,0 +1,605 @@
+---
+title: "Modeling Data"
+author: "Manda Egbert, John Dames, Kristina Burgess, and Elijah Weis"
+date: "2023-04-12"
+output:
+  word_document: default
+  html_document: default
+  pdf_document: default
+---
+
+### Load and Import
+This chunk loads multiple packages to aid in organizing and modeling our data. It also uses read.csv to import our cleaned data set. 
+```{r}
+library(tidyverse)
+library(modelr)
+library(cvTools)
+library(glmnet)
+install.packages("reshape2")
+library(reshape2)
+set.seed(123)
+
+clean.cat <- read.csv("C:/Users/amand/OneDrive/Desktop/IA Research/clean.categories.csv")
+clean.num <- read.csv("C:/Users/amand/OneDrive/Desktop/IA Research/clean.numeric.csv")
+```
+### Gender by generation
+Gender was split into 3 sections. Female, male, and other.  Other consists of 2 non-binary and 1 questioning individuals. These were combined because very few responded with these and having them separate made it difficult to differentiate on the graph.
+
+```{r}
+print(levels(clean.cat$generation))
+
+# Change the order of the levels for the 'generation' variable
+clean.cat$generation <- factor(clean.cat$generation, 
+                                levels = c("Baby Boomers", "Gen X", "Millennial", "Gen Z"))
+
+# Check the new order of the levels for the 'generation' variable
+print(levels(clean.cat$generation))
+```
+
+```{r}
+ggplot(clean.cat, aes(x = generation, fill = gender)) +
+  geom_bar(position = "stack") +
+  labs(title = "Gender Distribution by Generation",
+       x = "Generation", y = "Count") +
+  scale_fill_manual(values = c("#0072B2", "#E69F00", "purple"))
+```
+
+```{r}
+ggplot(clean.cat, aes(x = gender, fill = gender)) +
+  geom_bar() +
+  scale_fill_manual(values = c("#0072B2", "#E69F00", "purple")) +
+  labs(title = "Gender Counts", x = "Gender", y = "Count")
+```
+
+### Budget distribution (see outliers)
+```{r Budget distibution}
+# Select only the numeric values of groc.budget
+groc.budget_numeric <- as.numeric(clean.cat$groc.budget)
+
+# Identify outliers using the boxplot method
+outliers <- boxplot.stats(groc.budget_numeric)$out
+
+# Create a histogram
+hist(groc.budget_numeric, breaks = 20, main = "Histogram of groc.budget")
+
+# Add a vertical line for each outlier
+abline(v = outliers, col = "red", lwd = 2)
+```
+### Boxplot: Grocery budget by generation
+Note that boomers has the smallest amount of variation
+```{r Budget by generation}
+ggplot(clean.cat, aes(x = generation, y = groc.budget_numeric)) +
+  geom_boxplot() +
+  stat_summary(fun = mean, geom = "text", size = 4, color = "black", 
+               position = position_dodge(width = 0.75), show.legend = FALSE, 
+               aes(label = round(..y.., 2))) +
+  labs(title = "Boxplot of groc.budget for each category of generation",
+       x = "Generation", y = "groc.budget")
+```
+
+
+### Grocery store by generation
+```{r}
+total_choices <- aggregate(choice ~ generation + store, data_long, sum)
+
+# Calculate the proportion of each choice in each generation and store combination
+prop_data <- total_choices %>%
+  group_by(generation) %>%
+  mutate(prop_choice = choice / sum(choice)) %>%
+  ungroup() %>%
+  select(-choice)
+
+# Plot the proportion of each choice by generation, with bars stacked proportionally and labels for each section
+ggplot(prop_data, aes(x = generation, y = prop_choice, fill = store, label = scales::percent(prop_choice))) +
+  geom_bar(stat = "identity", position = "fill") +
+  labs(title = "Store Choices by Generation",
+       x = "Generation", y = "Proportion") +
+  scale_fill_manual(values = c("#0072B2", "#E69F00", "#009E73", "#CC79A7", "#D55E00", "purple")) +
+  theme(legend.position = "bottom") +
+  geom_text(position = position_fill(vjust = 0.5), size = 3, color = "white")
+```
+
+```{r}
+# Load the dplyr and scales packages
+library(dplyr)
+library(scales)
+
+# Group the data by generation and each store variable, and calculate the mean of each store variable
+prop_data <- clean.cat %>%
+  group_by(generation) %>%
+  summarize(`Supermarket` = mean(supermarket),
+            `Grocery Store` = mean(grocery.store),
+            `Farmers Market` = mean(farmer.market),
+            `Online Store` = mean(online.groc),
+            `Warehouse` = mean(warehouse),
+            `Online Prepping Service` = mean(online.prep))
+
+# Create a new data frame with the proportions converted to percentages
+prop_data_percent <- prop_data %>%
+  mutate(across(-generation, percent))
+
+# Show the proportion of store choices by generation as percentages
+prop_data_percent
+```
+
+
+
+### PErception vs reality
+```{r Millenial}
+# Calculate mean perception rating for each generation
+perception_data <- aggregate(impact.boomer ~ generation, clean.cat, mean)
+
+# Calculate mean self rating for millennial
+self_data <- aggregate(impact ~ generation, clean.cat, mean)
+self_data$generation <- "Baby Boomer"
+
+# Merge perception and self data using 'generation' as the key
+combined_data <- merge(perception_data, self_data, by = "generation", all = TRUE)
+
+# Melt data into long format
+combined_data_long <- tidyr::gather(combined_data, variable, rating, -generation, na.rm = TRUE)
+
+# Set the order of the levels for the 'generation' variable
+combined_data_long$generation <- factor(combined_data_long$generation, 
+                                        levels = c("Baby Boomers", "Gen X", "Millennial", "Gen Z"))
+
+# Plot grouped bar graph
+ggplot(combined_data_long, aes(x = generation, y = rating, fill = variable)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Perceived vs. Personal Effects of Increasing Grocery Prices on Baby",
+       x = "Generation", y = "Rating") +
+  scale_fill_manual(values = c("#E69F00", "#0072B2")) +
+  theme(legend.position = "bottom")
+```
+```{r Gen Z}
+perception_data <- aggregate(impact.genZ ~ generation, clean.cat, mean)
+
+self_data <- aggregate(impact ~ generation, clean.cat, mean)
+self_data$generation <- "Gen Z"
+
+combined_data <- merge(perception_data, self_data, by = "generation", all = TRUE)
+
+combined_data_long <- tidyr::gather(combined_data, variable, rating, -generation, na.rm = TRUE)
+
+ggplot(combined_data_long, aes(x = generation, y = rating, fill = variable)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Perceived vs. Actual Effects of Increasing Grocery Prices on Gen Z",
+       x = "Generation", y = "Rating") +
+  scale_fill_manual(values = c("#E69F00", "#0072B2")) +
+  theme(legend.position = "bottom")
+```
+```{r Boomer}
+perception_data <- aggregate(impact.boomer ~ generation, clean.cat, mean)
+
+self_data <- aggregate(impact ~ generation, clean.cat, mean)
+self_data$generation <- "Baby Boomers"
+
+combined_data <- merge(perception_data, self_data, by = "generation", all = TRUE)
+
+combined_data_long <- tidyr::gather(combined_data, variable, rating, -generation, na.rm = TRUE)
+
+ggplot(combined_data_long, aes(x = generation, y = rating, fill = variable)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Perceived vs. Actual Effects of Increasing Grocery Prices on Baby Boomers",
+       x = "Generation", y = "Rating") +
+  scale_fill_manual(values = c("#E69F00", "#0072B2")) +
+  theme(legend.position = "bottom")
+```
+```{r Gen X}
+perception_data <- aggregate(impact.genX ~ generation, clean.cat, mean)
+
+self_data <- aggregate(impact ~ generation, clean.cat, mean)
+self_data$generation <- "Gen X"
+
+combined_data <- merge(perception_data, self_data, by = "generation", all = TRUE)
+
+combined_data_long <- tidyr::gather(combined_data, variable, rating, -generation, na.rm = TRUE)
+
+ggplot(combined_data_long, aes(x = generation, y = rating, fill = variable)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Perceived vs. Actual Effects of Increasing Grocery Prices on Gen X",
+       x = "Generation", y = "Rating") +
+  scale_fill_manual(values = c("#E69F00", "#0072B2")) +
+  theme(legend.position = "bottom")
+```
+
+### Simple Linear Regression
+The following chunks create a linear model using a single explanatory variable,  to predict our response variable, Results.  We will use the output to consider whether the variable is significant (p-value less than 5%) and whether r-squared is high enough (preferably greater than 80%, but we will be satisfied with just the highest value we can find) to suggest the regression does a good job at explaining the variation in our response.
+
+Insigificant, however note that boomer is the best predictor and this goes well with the limited variation we see in the boxplot. millenial is kinda sig
+```{r Budget}
+lm.budget <- lm(generation ~ groc.budget_numeric, data=clean.num)
+summary(lm.budget)
+```
+
+Good pvalue, bad r-sq
+```{r Household}
+lm.household <- lm(generation ~ household.size, data=clean.num)
+summary(lm.household)
+```
+Look into whether millennial are more likely to shop at online grocery stores AND online prep
+```{r Online grocery shopping}
+lm.online.groc <- lm(generation ~ online.groc, data=clean.num)
+summary(lm.online.groc)
+```
+
+
+### Multiple Linear Regression
+The following chunks create a multiple linear model using multiple explanatory variables to predict our response variable, Results.  We will use the output to determine which variables are significant (p-value less than 5%) and whether r-squared is high enough (preferably greater than 80%) to suggest the regression does a good job at explaining the variation in our response.
+
+```{r Full model}
+model.all <- lm(generation ~ groc.budget_numeric + household.size + online.groc + income + concern + changes1, data=clean.num)
+summary(model.all)
+```
+
+```{r}
+clean.cat_long <- tidyr::pivot_longer(clean.cat, cols = c("price", "quality", "brand", "convenience"), 
+                                      names_to = "factor", values_to = "value")
+
+# Calculate the total number of selections for each factor and generation combination
+total_selections <- aggregate(value ~ generation + factor, clean.cat_long, sum)
+
+# Calculate the proportion of each factor selected by generation
+prop_data <- total_selections %>%
+  group_by(generation) %>%
+  mutate(prop_factor = value / sum(value)) %>%
+  ungroup() %>%
+  select(-value)
+
+# Convert proportions to percentages and create a new column in the prop_data dataframe
+prop_data_percent <- prop_data %>%
+  mutate(prop_percent = scales::percent(prop_factor))
+
+# Create a stacked bar chart for each generation with proportions displayed in labels
+ggplot(prop_data_percent, aes(x = generation, y = prop_factor, fill = factor, label = prop_percent)) +
+  geom_col(position = "fill") +
+  labs(title = "Factors Most Important to Each Generation",
+       x = "Generation", y = "Proportion", fill = "Factor") +
+  scale_fill_manual(values = c("#0072B2", "#E69F00", "#009E73", "#CC79A7")) +
+  theme(legend.position = "bottom") +
+  geom_text(position = position_fill(vjust = 0.5), color = "white")
+```
+
+
+
+```{r}
+model.reduced <- lm(generation ~ household.size + changes1, data=clean.num)
+summary(model.reduced)
+```
+
+
+### Chi-Sq
+Insig
+
+```{r}
+# create a subset of the data with only the before strategy variables and the generation variable
+before_data <- clean.num[, c("generation", "before1", "before2", "before3", "before4", "before5", "before6", "before7", "before8", "before9", "before10", "before11", "before12", "before13")]
+
+# run the chi-squared test
+before_chi <- chisq.test(before_data[, -1])
+before_chi
+```
+```{r}
+# create a subset of the data with only the after strategy variables and the generation variable
+after_data <- clean.num[, c("generation", "after1", "after2", "after3", "after4", "after5", "after6", "after7", "after8", "after9", "after10", "after11", "after12", "after13")]
+
+# run the chi-squared test
+after_chi <- chisq.test(after_data[, -1])
+after_chi
+```
+
+### Stacked bar-graph: Generation vs Strategies
+```{r}
+df <- data.frame(
+  generation = clean.cat$generation,
+  after1 = clean.cat$after1,
+  after2 = clean.cat$after2,
+  after3 = clean.cat$after3,
+  after4 = clean.cat$after4,
+  after5 = clean.cat$after5,
+  after6 = clean.cat$after6,
+  after7 = clean.cat$after7,
+  after8 = clean.cat$after8,
+  after9 = clean.cat$after9,
+  after10 = clean.cat$after10,
+  after11 = clean.cat$after11,
+  after12 = clean.cat$after12,
+  after13 = clean.cat$after13
+)
+
+df.counts <- aggregate(df[,-1], by = list(df$generation), FUN = sum)
+
+# Calculate the proportion of respondents in each generation who used each money-saving strategy
+df.prop <- df.counts
+df.prop[, -1] <- df.counts[, -1] / rowSums(df.counts[, -1])
+
+# Reshape the data to long format for plotting
+df.long <- reshape2::melt(df.prop, id.vars = "Group.1")
+
+# Create a stacked bar chart using ggplot2
+ggplot(data = df.long, aes(x = Group.1, y = value, fill = variable)) +
+  geom_bar(stat = "identity") +
+  xlab("Generation") +
+  ylab("Proportion of respondents") +
+  ggtitle("Money-saving strategies used after the increase in grocery prices") +
+  scale_fill_manual(values = c("#1F77B4", "#FF7F0E", "#2CA02C", "#D62728", "#9467BD", "#8C564B", "#E377C2", "#7F7F7F", "#BCBD22", "#17BECF", "#9F80A0", "#CCBEA0", "#DB8A1B"))
+```
+```{r}
+df <- data.frame(
+  generation = clean.cat$generation,
+  before1 = clean.cat$before1,
+  before2 = clean.cat$before2,
+  before3 = clean.cat$before3,
+  before4 = clean.cat$before4,
+  before5 = clean.cat$before5,
+  before6 = clean.cat$before6,
+  before7 = clean.cat$before7,
+  before8 = clean.cat$before8,
+  before9 = clean.cat$before9,
+  before10 = clean.cat$before10,
+  before11 = clean.cat$before11,
+  before12 = clean.cat$before12,
+  before13 = clean.cat$before13
+)
+
+df.counts <- aggregate(df[,-1], by = list(df$generation), FUN = sum)
+
+# Calculate the proportion of respondents in each generation who used each money-saving strategy
+df.prop <- df.counts
+df.prop[, -1] <- df.counts[, -1] / rowSums(df.counts[, -1])
+
+# Reshape the data to long format for plotting
+df.long <- reshape2::melt(df.prop, id.vars = "Group.1")
+
+# Create a stacked bar chart using ggplot2
+ggplot(data = df.long, aes(x = Group.1, y = value, fill = variable)) +
+  geom_bar(stat = "identity") +
+  xlab("Generation") +
+  ylab("Proportion of respondents") +
+  ggtitle("Money-saving strategies used before the increase in grocery prices") +
+  scale_fill_manual(values = c("#1F77B4", "#FF7F0E", "#2CA02C", "#D62728", "#9467BD", "#8C564B", "#E377C2", "#7F7F7F", "#BCBD22", "#17BECF", "#9F80A0", "#CCBEA0", "#DB8A1B"))
+```
+
+
+```{r 1}
+# Define the maximum count across all subsets of the data
+max_count <- max(table(clean.cat$generation))
+
+# Create a subset of the data for respondents who selected 1 in the "after1" variable
+after11_yes <- subset(clean.cat, after11 == 1)
+
+# Create a table of counts of respondents by generation
+generation_counts <- table(after11_yes$generation)
+
+# Define custom colors for the bars
+colors <- c("#F44336", "#FFC107", "#9C27B0", "#2196F3")
+
+# Create a vertical bar graph with custom colors and labels
+barplot(generation_counts, horiz = FALSE, col = colors, main = "Generational Switch to Buying Closer to Expiration", xlab = "Generation", ylab = "Number of Respondents", names.arg = c("Baby Boomers", "Gen X", "Millennial", "Gen Z"), ylim = c(0, max_count))
+```
+
+INFLATION
+38% gen x
+30% baby boomer
+boomer mentions biden and supply chain shortages
+gen x mentions biden A LOT
+gen z mostly inflation 
+
+```{r 2}
+df_sub <- clean.cat[, c("before2", "after2", "generation")]
+
+library(dplyr)
+df_summary <- df_sub %>%
+  group_by(generation) %>%
+  summarize(before2_count = sum(before2 == 1),
+            after2_count = sum(after2 == 1),
+            before2_prop = before2_count / n(),
+            after2_prop = after2_count / n())
+
+# Reshape the data from wide to long format
+df_long <- pivot_longer(df_summary, 
+                        cols = c("before2_prop", "after2_prop"), 
+                        names_to = "variable", 
+                        values_to = "value")
+
+# Create the bar plot
+ggplot(df_long, aes(x = generation, y = value, fill = variable)) +
+  geom_bar(stat = "identity", position = "dodge", alpha = 0.7) +
+  scale_fill_manual(values = c("blue", "red"), name = "",
+                    labels = c("Before", "After")) +
+  labs(x = "Generation", y = "Proportion",
+       title = "Generational Switch to Coupons and Discounts")
+```
+
+
+```{r 4}
+df_sub <- clean.cat[, c("before4", "after4", "generation")]
+
+library(dplyr)
+df_summary <- df_sub %>%
+  group_by(generation) %>%
+  summarize(before4_count = sum(before4 == 1),
+            after4_count = sum(after4 == 1),
+            before4_prop = before4_count / n(),
+            after4_prop = after4_count / n())
+
+# Reshape the data from wide to long format
+df_long <- pivot_longer(df_summary, 
+                        cols = c("before4_prop", "after4_prop"), 
+                        names_to = "variable", 
+                        values_to = "value")
+
+# Create the bar plot
+ggplot(df_long, aes(x = generation, y = value, fill = variable)) +
+  geom_bar(stat = "identity", position = "dodge", alpha = 0.7) +
+  scale_fill_manual(values = c("blue", "red"), name = "",
+                    labels = c("Before", "After")) +
+  labs(x = "Generation", y = "Proportion",
+       title = "Generational Switch to Comparison Shopping")
+
+```
+
+### Pie Charts
+
+```{r 1}
+after1_yes <- subset(clean.cat, after1 == 1)
+
+# Create a table of counts of respondents by generation
+generation_counts <- table(after1_yes$generation)
+
+# Create a vector of custom colors
+colors <- c("#F44336", "#FFC107", "#9C27B0", "#2196F3")
+
+# Create a pie chart with custom colors
+pie(generation_counts, main = "Generational Switch to More Affordable Grocery Store
+", labels = c("Baby Boomers", "Gen X", "Millennial", "Gen Z"), col = colors)
+```
+```{r 2}
+after2_yes <- subset(clean.cat, after2 == 1)
+
+# Create a table of counts of respondents by generation
+generation_counts <- table(after2_yes$generation)
+
+# Create a vector of custom colors
+colors <- c("#F44336", "#FFC107", "#9C27B0", "#2196F3")
+
+# Create a pie chart with custom colors
+pie(generation_counts, main = "Generational Switch to Using Coupons or Discounts More Frequently", labels = c("Baby Boomers", "Gen X", "Millennial", "Gen Z"), col = colors)
+```
+
+```{r 3}
+after3_yes <- subset(clean.cat, after3 == 1)
+
+# Create a table of counts of respondents by generation
+generation_counts <- table(after3_yes$generation)
+
+# Create a vector of custom colors
+colors <- c("#F44336", "#FFC107", "#9C27B0", "#2196F3")
+
+# Create a pie chart with custom colors
+pie(generation_counts, main = "Generational Switch to Reducing the Number of Items Purchased", labels = c("Baby Boomers", "Gen X", "Millennial", "Gen Z"), col = colors)
+```
+
+```{r 4}
+after4_yes <- subset(clean.cat, after4 == 1)
+
+# Create a table of counts of respondents by generation
+generation_counts <- table(after4_yes$generation)
+
+# Create a vector of custom colors
+colors <- c("#F44336", "#FFC107", "#9C27B0", "#2196F3")
+
+# Create a pie chart with custom colors
+pie(generation_counts, main = "Generational Switch to Seeking Out Lower-Cost or Generic Brands", labels = c("Baby Boomers", "Gen X", "Millennial", "Gen Z"), col = colors)
+```
+
+```{r 5}
+after5_yes <- subset(clean.cat, after5 == 1)
+
+# Create a table of counts of respondents by generation
+generation_counts <- table(after5_yes$generation)
+
+# Create a vector of custom colors
+colors <- c("#F44336", "#FFC107", "#9C27B0", "#2196F3")
+
+# Create a pie chart with custom colors
+pie(generation_counts, main = "Generational Switch to Shopping at Several Stores to Find Deals", labels = c("Baby Boomers", "Gen X", "Millennial", "Gen Z"), col = colors)
+```
+
+```{r 6}
+after6_yes <- subset(clean.cat, after6 == 1)
+
+# Create a table of counts of respondents by generation
+generation_counts <- table(after6_yes$generation)
+
+# Create a vector of custom colors
+colors <- c("#F44336", "#FFC107", "#9C27B0", "#2196F3")
+
+# Create a pie chart with custom colors
+pie(generation_counts, main = "Generational Switch to using Technology to Find Deals", labels = c("Baby Boomers", "Gen X", "Millennial", "Gen Z"), col = colors)
+```
+
+```{r 7}
+after7_yes <- subset(clean.cat, after7 == 1)
+
+# Create a table of counts of respondents by generation
+generation_counts <- table(after7_yes$generation)
+
+# Create a vector of custom colors
+colors <- c("#F44336", "#FFC107", "#9C27B0", "#2196F3")
+
+# Create a pie chart with custom colors
+pie(generation_counts, main = "Generational Switch to Avoiding Snacks or Non-Meal Food Items", labels = c("Baby Boomers", "Gen X", "Millennial", "Gen Z"), col = colors)
+```
+
+```{r 8}
+after8_yes <- subset(clean.cat, after8 == 1)
+
+# Create a table of counts of respondents by generation
+generation_counts <- table(after8_yes$generation)
+
+# Create a vector of custom colors
+colors <- c("#F44336", "#FFC107", "#9C27B0", "#2196F3")
+
+# Create a pie chart with custom colors
+pie(generation_counts, main = "Generational Switch to Avoiding Store When Hungry
+", labels = c("Baby Boomers", "Gen X", "Millennial", "Gen Z"), col = colors)
+```
+
+```{r 9}
+after9_yes <- subset(clean.cat, after9 == 1)
+
+# Create a table of counts of respondents by generation
+generation_counts <- table(after9_yes$generation)
+
+# Create a vector of custom colors
+colors <- c("#F44336", "#FFC107", "#9C27B0", "#2196F3")
+
+# Create a pie chart with custom colors
+pie(generation_counts, main = "Generational Switch to Buying in Bulk", labels = c("Baby Boomers", "Gen X", "Millennial", "Gen Z"), col = colors)
+```
+
+```{r 10}
+after10_yes <- subset(clean.cat, after10 == 1)
+
+# Create a table of counts of respondents by generation
+generation_counts <- table(after10_yes$generation)
+
+# Create a vector of custom colors
+colors <- c("#F44336", "#FFC107", "#9C27B0", "#2196F3")
+
+# Create a pie chart with custom colors
+pie(generation_counts, main = "Generational Switch to Favoring Items with a Long Shelf Life", labels = c("Baby Boomers", "Gen X", "Millennial", "Gen Z"), col = colors)
+```
+
+```{r 11}
+after11_yes <- subset(clean.cat, after11 == 1)
+
+# Create a table of counts of respondents by generation
+generation_counts <- table(after11_yes$generation)
+
+# Create a vector of custom colors
+colors <- c("#F44336", "#FFC107", "#9C27B0", "#2196F3")
+
+# Create a pie chart with custom colors
+pie(generation_counts, main = "Generational Switch to Buying Closer to Expiration for a Low Price", labels = c("Baby Boomers", "Gen X", "Millennial", "Gen Z"), col = colors)
+```
+
+
+other:
+```{r 12}
+after12_yes <- subset(clean.cat, after12 == 1)
+
+# Create a table of counts of respondents by generation
+generation_counts <- table(after12_yes$generation)
+
+# Create a vector of custom colors
+colors <- c("#F44336", "#FFC107", "#9C27B0", "#2196F3")
+
+# Create a pie chart with custom colors
+pie(generation_counts, main = "Proportion of Respondents Who Selected 1 in the 'after12' Variable\n by Generation", labels = c("Baby Boomers", "Gen X", "Millennial", "Gen Z"), col = colors)
+```
+
+
+
+
